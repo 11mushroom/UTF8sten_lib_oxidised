@@ -6,8 +6,7 @@
  * Copyright (c) 2025 11mushroom
  */
 
-use core::slice;
-use std::{char, error::Error, mem};
+use std::{char};
 
 const FFU32  :u32=0xffffffff;
 const OCTPR  :u32=0b10000000;
@@ -29,13 +28,16 @@ const ENC12B_BASE:u32=0x08000 ; //base for encoding 12 bits
 const ENC2BT_BASE:u32=0x20000 ; //base for encoding 2 bytes
 
 ///function to calculate amount of encoded data will take in bytes
+///see also [`en_len_chrs()`] for calculating how much will it take in [prim@char]s
 
+#[inline(always)]
 pub const fn getEnLen(len: usize) -> usize {
   (len/3)*6+(len%3)*2
 }
 
 ///function to calculate length of encoded data in unicode characters
 ///used for v1 encoding
+///for v2 encoding see [`en2_len_chrs()`]
 #[inline(always)]
 pub const fn en_len_chrs(len: usize) -> usize {
   (len/3)*2+len%3
@@ -43,11 +45,13 @@ pub const fn en_len_chrs(len: usize) -> usize {
 
 ///function to calculate length of encoded data in unicode characters
 ///used for v2 encoding
+///for v1 encoding see [`en_len_chrs()`]
 #[inline(always)]
 pub const fn en2_len_chrs(len:usize) -> usize {
   (len/2)+(len%2)
 }
 
+/*
 ///function to calculate amount of decoded data will take in bytes
 
 pub fn getStenLen(arr: &[u32]) -> usize {
@@ -73,19 +77,24 @@ pub fn getStenLen(arr: &[u32]) -> usize {
 
   return res;
 }
-
+*/
 
 /*fn gBit(num:u8, ind:u32) -> u32{
   (num>>ind)&1
 }*/
 
+
 ///functions to get value of specific bit in number
-#[inline]
+#[inline(always)]
 fn gBit(num:u32, ind:u32) -> u32{
   (num>>ind)&1
 }
 
 /// returns how many bytes codepoint will take in utf8 format
+///
+/// # Safety
+/// codepoint must be valid unicode (this function doesn't check codepoint)
+///
 #[inline]
 pub const unsafe fn utf8_len(code: u32) -> usize {
   match code {
@@ -97,8 +106,14 @@ pub const unsafe fn utf8_len(code: u32) -> usize {
 }
 
 /// encodes one u32 codepoint into utf8 bytes using raw pointer
+///
+/// # Safety
 /// doesn't check whether codepoint is valid unicode
+/// so you must be sure that codepoint you give is valid (function doesn't check it)
+///
 /// doesn't check boundaries of destination
+/// so you must be sure that destination is at least 4 bytes long (for full range of codepoints)
+///
 #[inline]
 pub const unsafe fn u32_to_utf8_raw_unchecked (code: u32, dest: *mut u8) -> usize {
   let len = unsafe {utf8_len(code)};
@@ -133,9 +148,15 @@ pub const unsafe fn u32_to_utf8_raw_unchecked (code: u32, dest: *mut u8) -> usiz
   }
 }
 
-/// takes &[u32] slice of codepoints
+/// takes &\[[u32]\] slice of codepoints
 /// and encodes it into utf8 format into array of bytes by raw pointer,
 /// returns length of written utf8 bytes
+///
+/// # Safety
+/// can produce invalid utf8 data as it doesn't check if codepoints are valid
+///
+/// can go out of bounds as it doesn't check boundaries of destination
+///
 pub unsafe fn u32_slice_to_utf8_unchecked(codes: *const u32, codes_len: usize, dest: *mut u8) -> usize {
     let mut dest_ptr = dest;
     for i in 0..codes_len {
@@ -147,7 +168,13 @@ pub unsafe fn u32_slice_to_utf8_unchecked(codes: *const u32, codes_len: usize, d
     unsafe { dest_ptr.offset_from_unsigned(dest) }
 }
 
-/// same as [`u32_slice_to_utf8_unchecked`] but for &\[[prim@char]\] slice
+/// same as [`u32_slice_to_utf8_unchecked()`] but for &\[[prim@char]\] slice
+///
+/// # Safety
+/// can produce invalid utf8 data as it doesn't check if codepoints are valid
+///
+/// can go out of bounds as it doesn't check boundaries of destination
+///
 #[inline(always)]
 pub unsafe fn char_slice_to_utf8_unchecked(chrs: *const char, chrs_len: usize, dest: *mut u8) -> usize {
     unsafe { u32_slice_to_utf8_unchecked(chrs as *const u32, chrs_len, dest) }
@@ -201,13 +228,13 @@ fn calcLen(str:&String) -> usize {
   str.chars().count()
 }
 
-///function to deencode string that contains UTF-8 characters and returns Vector with codepoints of characters
-
+///function to decode string that contains UTF-8 characters and returns Vector with codepoints of characters
+#[inline(always)]
 pub fn UTF8_den( string:&String ) -> Vec<u32> {
   string.chars().map(|c| c as u32).collect::<Vec<u32>>()
 }
 
-///wrap around the `enSten_to` function
+///wrap around the [`enSten_to()`] function
 ///if you don't need to reuse buffer
 #[inline(always)]
 pub fn enSten(arr: &[u8]) -> Vec<char> {
@@ -220,14 +247,24 @@ pub fn enSten(arr: &[u8]) -> Vec<char> {
 ///function to encode bytes in UTF-8 characters,
 ///recives array of bytes and buffer to store result to, and returns size of data written
 ///use it if you need to reuse buffer
-///otherwise you can use `enSten()`
+///otherwise you can use [`enSten()`]
 ///
-///length of the buffer must be >= of the amount of data that will be written:
-///```
-///assert!(buffer.len() >= en_len_chrs(arr.len()));
-///let _ = unsafe { enSten_to(arr, buffer) };
-///```
-
+///length of the buffer must be >= of the amount of data that will be written 
+///
+/// # Examples
+///
+/// ```
+/// let arr = vec![0_u8; 12];
+/// let mut buffer = vec![0 as char; utf8sten::en_len_chrs(arr.len())];
+/// 
+/// assert!(buffer.len() >= utf8sten::en_len_chrs(arr.len()));
+/// let _ = unsafe { utf8sten::enSten_to(&arr, &mut buffer) };
+/// ```
+///
+/// # Safety
+/// can go out of bounds when writing to the buffer
+/// so you must make sure that buffer if large enough
+///
 pub unsafe fn enSten_to(arr: &[u8], buffer:&mut [char]) -> usize {
   let len:usize=arr.len();
   let normal_len:usize = len-len%3;
@@ -241,6 +278,7 @@ pub unsafe fn enSten_to(arr: &[u8], buffer:&mut [char]) -> usize {
         // store source 3 bytes in buffer to process it later
         buff=u32::from_le_bytes([*arr.get_unchecked(i), *arr.get_unchecked(i+1), *arr.get_unchecked(i+2), 0]);
 
+        // SAFETY:
         // the range of codepoints 0x8000-0x8fff is entirely valid
         // so we don't need validation
         *buffer.get_unchecked_mut(dataI)=char::from_u32_unchecked(ENC12B_BASE|( buff    &0x0fff));
@@ -264,7 +302,9 @@ pub unsafe fn enSten_to(arr: &[u8], buffer:&mut [char]) -> usize {
 
 ///function to encode bytes in UTF-8 characters, recives array of bytes and length of that array, and returns vector with codepoints with data stored in it
 ///uses old way to encode which can be slower
-
+/// # Support
+/// support is discontinued, it will be deleted in the future
+///
 pub fn legacy_enSten(arr: &[u8]) -> Vec<char> {
   let len:usize=arr.len();
   let enLen:usize=(len/3)*2+ len%3;
@@ -330,8 +370,12 @@ pub fn legacy_enSten(arr: &[u8]) -> Vec<char> {
   return res;
 }
 
-///wrap around the `enSten2_to` function
+///wrap around the [`enSten2_to()`] function
 ///if you don't need to reuse buffer
+///
+/// # Panics
+/// will panic for the same reasons that [`enSten2_to()`] panics
+///
 #[inline(always)]
 pub fn enSten2(arr: &[u8]) -> Vec<char> {
   let mut res:Vec<char>=vec![0 as char;en2_len_chrs(arr.len())];
@@ -342,16 +386,28 @@ pub fn enSten2(arr: &[u8]) -> Vec<char> {
 ///function to encode bytes in UTF-8 characters,
 ///recives array of bytes and buffer to store result to, and returns size of data written
 ///use it if you need to reuse buffer
-///otherwise you can use `enSten2()`
+///otherwise you can use [`enSten2()`]
 ///
-///length of the buffer must be >= of the amount of data that will be written:
-///```
-///assert!(buffer.len() >= en2_len_chrs(arr.len()));
-///let _ = unsafe { enSten2_to(arr, buffer) };
-///```
-///works reliably with ascii table values (x<=0x7f)
-///other byte values are just gamble
-
+///length of the buffer must be >= of the amount of data that will be written
+///
+/// # Examples
+///
+/// ```
+/// let arr = vec![0_u8; 12];
+/// let mut buffer = vec![0 as char; utf8sten::en2_len_chrs(arr.len())];
+/// 
+/// assert!(buffer.len() >= utf8sten::en2_len_chrs(arr.len()));
+/// let _ = unsafe { utf8sten::enSten2_to(&arr, &mut buffer) };
+/// ```
+///
+/// # Safety
+/// can go out of bounds when writing to the buffer
+/// so you must make sure that buffer if large enough
+///
+/// works reliably with ascii table values (x<=0x7f) but
+/// other byte values are just gamble, and can cause function to panic, use
+/// [`v2_encode_valid()`] function to check your data
+///
 pub unsafe fn enSten2_to(arr: &[u8], buffer: &mut [char]) -> usize {
   let len:usize=arr.len();
 
@@ -360,7 +416,6 @@ pub unsafe fn enSten2_to(arr: &[u8], buffer: &mut [char]) -> usize {
 
   unsafe {
     for chn in arr.chunks_exact(2) {
-        // i|1 == i+1
         *buffer.get_unchecked_mut(dataI)=char::from_u32(ENC2BT_BASE|u32::from_le_bytes([chn[0],chn[1],0,0])) 
                           .expect(format!("data cannot be encoded in second format, cause of problem around {i} input byte").as_str());
         dataI+=1;
@@ -376,7 +431,27 @@ pub unsafe fn enSten2_to(arr: &[u8], buffer: &mut [char]) -> usize {
   return dataI;
 }
 
-///check if slice of codepoints is a valid u8s v2 data
+const V2_ST_VOID1:u32 = 42720;
+
+/// checks whether data can be encoded with v2 encoding without panics
+pub fn v2_encode_valid(arr:&[u8]) -> bool {
+  let len:usize=arr.len();
+  let flen:usize=len>>1;
+
+  let mut i:usize=0;
+
+  while i<flen {
+    let code:u32=u32::from_le_bytes([arr[i],arr[i|1],0,0]);
+    if code>=V2_ST_VOID1 {
+      return false;
+    }
+    i+=2;
+  }
+
+  true
+}
+
+///check if slice of codepoints is a valid u8s v1 data
 pub fn valid_en_v1(codes: &[u32]) -> bool {
     if codes.is_empty() { return true };
 
@@ -388,7 +463,8 @@ pub fn valid_en_v1(codes: &[u32]) -> bool {
                 return false;
             }
         }
-        return codes[codes.len()]&0xffffff00==ENC1BT_BASE;
+        // check last element
+        return codes[norm_len]&0xffffff00==ENC1BT_BASE;
     } else {
         for ch in codes[..norm_len-2].chunks_exact(2) {
             if ch[0]&0xfffff000!=ENC12B_BASE ||
@@ -405,7 +481,7 @@ pub fn valid_en_v1(codes: &[u32]) -> bool {
         }
     }
 
-    return true;
+    true
 
 }
 
@@ -415,8 +491,9 @@ pub fn de_len_max(en_len: usize) -> usize {
     en_len+en_len/2
 }
 
-///wrap around the `deSten_to_raw_unchecked` function
+///safe wrap around the [`deSten_to_raw_unchecked()`] function
 ///if you don't need to reuse buffer
+///only for v1 encoded data
 #[inline(always)]
 pub fn deSten(codes: &[u32]) -> Result<Vec<u8>, &str> {
     let mut res:Vec<u8> = Vec::with_capacity(de_len_max(codes.len()));
@@ -431,7 +508,7 @@ pub fn deSten(codes: &[u32]) -> Result<Vec<u8>, &str> {
     Ok(res)
 }
 
-///safe wrap around the `deSten_to_raw_unchecked` function
+///safe wrap around the [`deSten_to_raw_unchecked()`] function
 ///only for v1 encoded data
 #[inline(always)]
 pub fn deSten_to<'a>(codes: &'a [u32], buffer: &'a mut [u8]) -> Result<usize, &'static str> {
@@ -453,14 +530,28 @@ pub fn deSten_to<'a>(codes: &'a [u32], buffer: &'a mut [u8]) -> Result<usize, &'
 ///recives raw pointer to array of codepoints, length of the array and raw mutable pointer to buffer
 ///where to store result, returns size of data written
 ///use it if you need to reuse buffer or whatever
-///otherwise you can use safe `deSten_to()` or `deSten()`
+///otherwise you can use safe [`deSten_to()`] or [`deSten()`]
 ///
-///length of the buffer should be 1.5 as long as array with codepoints:
-///```
-///assert!(buffer.len() >= de_len_max(arr));
-///let _ = unsafe { deSten_to_raw_unchecked(arr.as_ptr(), arr.len(), buffer.as_mut_ptr()) };
-///```
-
+///length of the buffer should be 1.5 as long as array with codepoints (see [`de_len_max()`] for calculating it)
+///
+/// # Examples
+/// ```
+/// # use std::mem;
+/// let u8s_message:Vec<u32> = unsafe {mem::transmute( utf8sten::enSten("hello".as_bytes()) )};
+/// # assert!(utf8sten::valid_en_v1(&u8s_message));
+/// let mut buffer:Vec<u8> = vec![0_u8; utf8sten::de_len_max(u8s_message.len())];
+///
+/// assert!(buffer.len() >= utf8sten::de_len_max(u8s_message.len()));
+/// let len:usize = unsafe {
+///     utf8sten::deSten_to_raw_unchecked(u8s_message.as_ptr(), u8s_message.len(), buffer.as_mut_ptr())
+/// };
+///
+/// # assert_eq!(&buffer[..len], "hello".as_bytes());
+/// ```
+///
+/// # Safety
+/// can go out of bounds when writing to buffer as it doesn't check buffer's boundaries at all
+/// 
 pub unsafe fn deSten_to_raw_unchecked(codes: *const u32, codes_len: usize, buffer: *mut u8) -> usize {
     let normal_len:usize = codes_len^(codes_len&1);
     let mut res_i:usize=0;
@@ -517,8 +608,11 @@ pub fn valid_en_v2(codes: &[u32]) -> bool {
     true
 }
 
-///wrap around the `deSten2_to_raw_unchecked` function
+///wrap around the [`deSten2_to_raw_unchecked()`] function
 ///if you don't need to reuse buffer
+///only for v2 encoded data
+///
+///will return Error if buffer is too small for safe use or if input data is invalid
 #[inline(always)]
 pub fn deSten2(codes: &[u32]) -> Result<Vec<u8>, &str> {
   let mut res:Vec<u8>=Vec::with_capacity(de2_len_max(codes.len()));
@@ -533,13 +627,15 @@ pub fn deSten2(codes: &[u32]) -> Result<Vec<u8>, &str> {
   Ok(res)
 }
 
-///safe wrap around the `deSten2_to_raw_unchecked` function
+///safe wrap around the [`deSten2_to_raw_unchecked()`] function
 ///only for v2 encoded data
+///
+///will return Error if buffer is too small for safe use or if input data is invalid
 #[inline(always)]
 pub fn deSten2_to<'a>(codes: &'a [u32], buffer: &'a mut [u8]) -> Result<usize, &'static str> {
     if buffer.len() < de2_len_max(codes.len()) {
         return Err("buffer overflow is possible, length of buffer must be >= than de2_len_max()");
-    } else if !valid_en_v1(codes) {
+    } else if !valid_en_v2(codes) {
         return Err("invalid u8s v2 data");
     }
 
@@ -555,14 +651,28 @@ pub fn deSten2_to<'a>(codes: &'a [u32], buffer: &'a mut [u8]) -> Result<usize, &
 ///recives raw pointer to array of codepoints, length of the array and raw mutable pointer to buffer
 ///where to store result, returns size of data written
 ///use it if you need to reuse buffer or whatever
-///otherwise you can use `deSten2()`
+///otherwise you can use [`deSten2_to()`] or [`deSten2()`]
 ///
-///length of the buffer should be twice as long as array with codepoints:
+///length of the buffer should be twice as long as array with codepoints ( [`de2_len_max()`] )
+///
+///# Examples
 ///```
-///assert!(buffer.len() >= arr.len()*2);
-///let _ = unsafe { deSten2_to_raw_unchecked(arr.as_ptr(), arr.len(), buffer.as_mut_ptr()) };
+/// # use std::mem;
+/// let u8s_message:Vec<u32> = unsafe {mem::transmute( utf8sten::enSten2("hello".as_bytes()) )};
+/// # assert!(utf8sten::valid_en_v2(&u8s_message));
+/// let mut buffer:Vec<u8> = vec![0_u8; utf8sten::de2_len_max(u8s_message.len())];
+///
+/// assert!(buffer.len() >= utf8sten::de2_len_max(u8s_message.len()));
+/// let len:usize = unsafe {
+///     utf8sten::deSten2_to_raw_unchecked(u8s_message.as_ptr(), u8s_message.len(), buffer.as_mut_ptr())
+/// };
+///
+/// # assert_eq!(&buffer[..len], "hello".as_bytes());
 ///```
-
+///
+/// # Safety
+/// can go out of bounds when writing to buffer as it doesn't check buffer's boundaries at all
+/// 
 pub unsafe fn deSten2_to_raw_unchecked(codes: *const u32, codes_len: usize ,buffer: *mut u8) -> usize {
   let mut res_i:usize=0;
 
@@ -587,30 +697,10 @@ pub unsafe fn deSten2_to_raw_unchecked(codes: *const u32, codes_len: usize ,buff
   return res_i;
 }
 
-pub mod Block {
-  const V2_ST_VOID1:u32 = 42720;
-
-  pub fn v2_encode_valid(arr:&[u8]) -> bool {
-    let len:usize=arr.len();
-    let flen:usize=len>>1;
-
-    let mut i:usize=0;
-
-    while i<flen {
-      let code:u32=u32::from_le_bytes([arr[i],arr[i|1],0,0]);
-      if code>=V2_ST_VOID1 {
-        return false;
-      }
-      i+=2;
-    }
-
-    return true;
-  }
-}
-
-
+/*
 ///wrap around the `deSten_to` function
 ///if you don't need to reuse buffer
+#[doc(hidden)]
 #[inline(always)]
 pub fn deSten_legacy(arr: &[u32]) -> Vec<u8> {
   let mut res:Vec<mem::MaybeUninit<u8>>=Vec::with_capacity(arr.len()*2);
@@ -633,7 +723,7 @@ pub fn deSten_legacy(arr: &[u32]) -> Vec<u8> {
 ///assert!(buffer.len() >= arr.len()*2);
 ///let _ = unsafe { deSten_to(arr, buffer) };
 ///```
-
+#[doc(hidden)]
 pub unsafe fn deSten_to_legacy(arr: &[u32], buffer: &mut [u8]) -> usize {
   let len:usize=arr.len();
 
@@ -698,10 +788,10 @@ pub unsafe fn deSten_to_legacy(arr: &[u32], buffer: &mut [u8]) -> usize {
   return dataI;
 
 }
+*/
 
 #[cfg(test)]
 mod tests {
-    use std::result;
 
     use super::*;
 
@@ -710,7 +800,7 @@ mod tests {
         eprintln!("\nSTART enSten");
 
         let buff:Vec<&str>=vec!["hello!", "hello", "hell"];
-        let need:Vec<String>=["蕨蛆转舖", "蕨蛆Ŭů", "蕨蛆Ŭ"].into_iter().map(|s| String::from(s)).collect();
+        let need:Vec<String>=["蕨蛆转舖", "蕨蛆Ŭů", "蕨蛆Ŭ"].into_iter().map(String::from).collect();
         assert_eq!(buff.len(), need.len());
 
         for i in 0..buff.len() {
@@ -727,7 +817,7 @@ mod tests {
     fn destenning_works() {
         eprintln!("\nSTART deSten");
 
-        let buff:Vec<String>=["蕨蛆转舖", "蕨蛆Ŭů", "蕨蛆Ŭ"].into_iter().map(|s| String::from(s)).collect();
+        let buff:Vec<String>=["蕨蛆转舖", "蕨蛆Ŭů", "蕨蛆Ŭ"].into_iter().map(String::from).collect();
         let need:Vec<&str>=vec!["hello!", "hello", "hell"];
         assert_eq!(buff.len(), need.len());
 
@@ -746,7 +836,7 @@ mod tests {
         eprintln!("\nSTART enSten2");
 
         let buff:Vec<&str>=vec!["hello!", "hello"];
-        let need:Vec<String>=["𦕨𦱬𢅯", "𦕨𦱬ů"].into_iter().map(|s| String::from(s)).collect();
+        let need:Vec<String>=["𦕨𦱬𢅯", "𦕨𦱬ů"].into_iter().map(String::from).collect();
         assert_eq!(buff.len(), need.len());
 
         for i in 0..buff.len() {
@@ -763,13 +853,13 @@ mod tests {
     fn destenning_v2_works() {
         eprintln!("\nSTART deSten2");
 
-        let buff:Vec<String>=["𦕨𦱬𢅯", "𦕨𦱬ů"].into_iter().map(|s| String::from(s)).collect();
+        let buff:Vec<String>=["𦕨𦱬𢅯", "𦕨𦱬ů"].into_iter().map(String::from).collect();
         let need:Vec<&str>=vec!["hello!", "hello"];
         assert_eq!(buff.len(), need.len());
 
         for i in 0..buff.len() {
-          let res = deSten2(&buff[i].chars().map(|c| c as u32).collect::<Vec<u32>>());
-          eprintln!("result{i}: {}", String::from_utf8(res.clone()).expect("deSten2 test failed"));
+          let res = deSten2(&buff[i].chars().map(|c| c as u32).collect::<Vec<u32>>()).expect("testing values must be correct");
+          eprintln!("result{i}: {}", String::from_utf8(res.clone()).expect("result should be valid"));
 
           eprintln!("need{i}:   {}", need[i]);
 
