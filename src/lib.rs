@@ -553,16 +553,25 @@ pub fn deSten_to<'a>(codes: &'a [u32], buffer: &'a mut [u8]) -> Result<usize, &'
 /// can go out of bounds when writing to buffer as it doesn't check buffer's boundaries at all
 /// 
 pub unsafe fn deSten_to_raw_unchecked(codes: *const u32, codes_len: usize, buffer: *mut u8) -> usize {
-    let normal_len:usize = codes_len^(codes_len&1);
+    let even_len:isize = ((codes_len^(codes_len&1))-2) as isize;
+    let even_len:usize = (even_len & !(even_len >> (isize::BITS-1))) as usize;
+    let even_suf_len:usize = codes_len^(codes_len&1);
     let mut res_i:usize=0;
     let mut i:usize=0;
     let mut buff:u32;
 
     unsafe {
-      while i<normal_len {
+      while i<even_len {
+        buff = (*codes.add(i)&0xfff) | ((*codes.add(i+1)&0xfff) << 12);
+        *buffer.add(res_i  ) = ((buff    )&0xff) as u8;
+        *buffer.add(res_i+1) = ((buff>>8 )&0xff) as u8;
+        *buffer.add(res_i+2) = ((buff>>16)&0xff) as u8;
+        res_i+=3;
+        i+=2;
+      }
+      while i<even_suf_len {
         if *codes.add(i  )&0xfffff000 == ENC12B_BASE &&
            *codes.add(i+1)&0xfffff000 == ENC12B_BASE {
-          
             buff = (*codes.add(i)&0xfff) | ((*codes.add(i+1)&0xfff) << 12);
             *buffer.add(res_i  ) = ((buff    )&0xff) as u8;
             *buffer.add(res_i+1) = ((buff>>8 )&0xff) as u8;
@@ -571,7 +580,6 @@ pub unsafe fn deSten_to_raw_unchecked(codes: *const u32, codes_len: usize, buffe
             i+=2;
             continue;
         }
-
         *buffer.add(res_i  ) = (*codes.add(i  )&0xff) as u8;
         *buffer.add(res_i+1) = (*codes.add(i+1)&0xff) as u8;
         res_i+=2;
