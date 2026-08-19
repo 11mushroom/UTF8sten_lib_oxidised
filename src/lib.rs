@@ -6,6 +6,8 @@
  * Copyright (c) 2025 11mushroom
  */
 
+#![doc = include_str!("../doc/utf8sten.md")]
+
 use std::{char};
 
 const FFU32  :u32=0xffffffff;
@@ -29,7 +31,7 @@ const ENC2BT_BASE:u32=0x20000 ; //base for encoding 2 bytes
 
 ///function to calculate amount of encoded data will take in bytes
 ///see also [`en_len_chrs()`] for calculating how much will it take in [prim@char]s
-
+///
 #[inline(always)]
 pub const fn getEnLen(len: usize) -> usize {
   (len/3)*6+(len%3)*2
@@ -148,7 +150,7 @@ pub const unsafe fn u32_to_utf8_raw_unchecked (code: u32, dest: *mut u8) -> usiz
   }
 }
 
-/// takes &\[[u32]\] slice of codepoints
+/// takes length and raw pointer of &\[[u32]\] slice with codepoints
 /// and encodes it into utf8 format into array of bytes by raw pointer,
 /// returns length of written utf8 bytes
 ///
@@ -168,7 +170,7 @@ pub unsafe fn u32_slice_to_utf8_unchecked(codes: *const u32, codes_len: usize, d
     unsafe { dest_ptr.offset_from_unsigned(dest) }
 }
 
-/// same as [`u32_slice_to_utf8_unchecked()`] but for &\[[prim@char]\] slice
+/// same as [`u32_slice_to_utf8_unchecked()`] but for raw parts of &\[[prim@char]\] slice
 ///
 /// # Safety
 /// can produce invalid utf8 data as it doesn't check if codepoints are valid
@@ -406,7 +408,7 @@ pub fn enSten2(arr: &[u8]) -> Vec<char> {
 ///
 /// works reliably with ascii table values (x<=0x7f) but
 /// other byte values are just gamble, and can cause function to panic, use
-/// [`v2_encode_valid()`] function to check your data
+/// [`supports_v2_encode()`] function to check your data
 ///
 pub unsafe fn enSten2_to(arr: &[u8], buffer: &mut [char]) -> usize {
   let len:usize=arr.len();
@@ -434,7 +436,7 @@ pub unsafe fn enSten2_to(arr: &[u8], buffer: &mut [char]) -> usize {
 const V2_ST_VOID1:u32 = 42720;
 
 /// checks whether data can be encoded with v2 encoding without panics
-pub fn v2_encode_valid(arr:&[u8]) -> bool {
+pub fn supports_v2_encode(arr:&[u8]) -> bool {
   let len:usize=arr.len();
   let flen:usize=len>>1;
 
