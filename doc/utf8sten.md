@@ -2,6 +2,11 @@
 
 short `u8s`
 
+**disclaimer**:
+  - output produced by encoding any data is ___not___ intended to have any meaning in any language,
+    output ___only___ stores in itself original encoded data,
+    if result of encoding has some meaning in some language, it's just coincidence.
+
 encoding of raw data in unicode symbols using range U+8000 (which is valid from U+8000 to U+8FFF included),
 which allows to store 1.5 bytes of raw data in 1 symbol, resulting in ratio of `bytes:symbols` be `3:2`,
 resulting in 33.(3)% length reduction (note that output symbols are not ascii ∴ will take > 1 byte)
