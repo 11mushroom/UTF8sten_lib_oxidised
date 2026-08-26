@@ -8,7 +8,7 @@
 
 #![doc = include_str!("../doc/utf8sten.md")]
 
-use std::{char};
+use std::{char, mem};
 
 const FFU32  :u32=0xffffffff;
 const OCTPR  :u32=0b10000000;
@@ -37,7 +37,7 @@ pub const fn getEnLen(len: usize) -> usize {
   (len/3)*6+(len%3)*2
 }
 
-///function to calculate length of encoded data in unicode characters
+///function to calculate accurate length of encoded data in unicode characters
 ///used for v1 encoding
 ///for v2 encoding see [`en2_len_chrs()`]
 #[inline(always)]
@@ -45,7 +45,7 @@ pub const fn en_len_chrs(len: usize) -> usize {
   (len/3)*2+len%3
 }
 
-///function to calculate length of encoded data in unicode characters
+///function to calculate accurate length of encoded data in unicode characters
 ///used for v2 encoding
 ///for v1 encoding see [`en_len_chrs()`]
 #[inline(always)]
@@ -236,6 +236,33 @@ pub fn UTF8_den( string:&String ) -> Vec<u32> {
   string.chars().map(|c| c as u32).collect::<Vec<u32>>()
 }
 
+///like [`enSten()`] but returns `String`
+///if you don't need to reuse buffer
+///
+/// # Examples
+///
+/// ```
+/// let msg = String::from("hello");
+/// # let expected = "蕨蛆Ŭů";
+///
+/// let encoded = utf8sten::enSten_to_string(msg.as_bytes());
+/// # assert_eq!(encoded, expected);
+/// println!("encoded message: {}", encoded);
+/// ```
+///
+#[inline(always)]
+pub fn enSten_to_string(arr: &[u8]) -> String {
+  let mut pre_res:Vec<char>=vec![0 as char;en_len_chrs(arr.len())];
+  let mut len = unsafe { enSten_to(arr, &mut pre_res) };
+  // inplace utf8 encoding
+  len = unsafe { char_slice_to_utf8_unchecked(pre_res.as_ptr(), len, pre_res.as_mut_ptr() as *mut u8) };
+
+  let mut pre_res = mem::ManuallyDrop::new(pre_res); // don't doublefree
+  let res:String = unsafe { String::from_raw_parts(pre_res.as_mut_ptr() as *mut u8, len, pre_res.capacity() * mem::size_of::<char>()) };
+
+  res
+}
+
 ///wrap around the [`enSten_to()`] function
 ///if you don't need to reuse buffer
 #[inline(always)]
@@ -370,6 +397,36 @@ pub fn legacy_enSten(arr: &[u8]) -> Vec<char> {
   }
 
   return res;
+}
+
+///like [`enSten2()`] but returns `String`
+///if you don't need to reuse buffer
+///
+/// # Examples
+///
+/// ```
+/// let msg = String::from("hello");
+/// # let expected = "𦕨𦱬ů";
+///
+/// let encoded = utf8sten::enSten2_to_string(msg.as_bytes());
+/// # assert_eq!(encoded, expected);
+/// println!("encoded message: {}", encoded);
+/// ```
+///
+/// # Panics
+/// will panic for the same reasons that [`enSten2_to()`] panics
+///
+#[inline(always)]
+pub fn enSten2_to_string(arr: &[u8]) -> String {
+  let mut pre_res:Vec<char>=vec![0 as char;en2_len_chrs(arr.len())];
+  let mut len = unsafe { enSten2_to(arr, &mut pre_res) };
+  // inplace utf8 encoding
+  len = unsafe { char_slice_to_utf8_unchecked(pre_res.as_ptr(), len, pre_res.as_mut_ptr() as *mut u8) };
+
+  let mut pre_res = mem::ManuallyDrop::new(pre_res); // don't doublefree
+  let res:String = unsafe { String::from_raw_parts(pre_res.as_mut_ptr() as *mut u8, len, pre_res.capacity() * mem::size_of::<char>()) };
+
+  res
 }
 
 ///wrap around the [`enSten2_to()`] function
@@ -803,7 +860,9 @@ pub unsafe fn deSten_to_legacy(arr: &[u32], buffer: &mut [u8]) -> usize {
 #[cfg(test)]
 mod tests {
 
-    use super::*;
+    use core::slice;
+
+use super::*;
 
     #[test]
     fn enstenning_works() {
@@ -815,7 +874,7 @@ mod tests {
 
         for i in 0..buff.len() {
           let res = enSten(buff[i].as_bytes());
-          eprintln!("result{i}: {}", res.iter().collect::<String>());
+          eprintln!("\nresult{i}: {}", res.iter().collect::<String>());
 
           eprintln!("need{i}:   {}", need[i]);
 
@@ -833,7 +892,7 @@ mod tests {
 
         for i in 0..buff.len() {
           let res = deSten(&buff[i].chars().map(|c| c as u32).collect::<Vec<u32>>()).expect("testing values must be correct");
-          eprintln!("result{i}: {}", String::from_utf8(res.clone()).expect("deSten test failed"));
+          eprintln!("\nresult{i}: {}", String::from_utf8(res.clone()).expect("deSten test failed"));
 
           eprintln!("need{i}:   {}", need[i]);
 
@@ -851,7 +910,7 @@ mod tests {
 
         for i in 0..buff.len() {
           let res = enSten2(buff[i].as_bytes());
-          eprintln!("result{i}: {}", res.iter().collect::<String>());
+          eprintln!("\nresult{i}: {}", res.iter().collect::<String>());
 
           eprintln!("need{i}:   {}", need[i]);
 
@@ -869,11 +928,37 @@ mod tests {
 
         for i in 0..buff.len() {
           let res = deSten2(&buff[i].chars().map(|c| c as u32).collect::<Vec<u32>>()).expect("testing values must be correct");
-          eprintln!("result{i}: {}", String::from_utf8(res.clone()).expect("result should be valid"));
+          eprintln!("\nresult{i}: {}", String::from_utf8(res.clone()).expect("result should be valid"));
 
           eprintln!("need{i}:   {}", need[i]);
 
           assert_eq!(res, need[i].as_bytes());
         };
     }
+
+    #[test]
+    fn utf8_encoding_works() {
+        eprintln!("\nSTART utf8");
+
+        //let buff:Vec<&str>=vec!["hello!", "hello", "hell"];
+        let need:Vec<String>=["蕨蛆转舖", "蕨蛆Ŭů", "蕨蛆Ŭ", "𦕨𦱬𢅯", "𦕨𦱬ů"].into_iter().map(String::from).collect();
+        let mut buff:Vec<Vec<char>> = need.iter().map(|s| s.chars().collect()).collect();
+        assert_eq!(buff.len(), need.len());
+
+        for i in 0..buff.len() {
+          let len = unsafe { char_slice_to_utf8_unchecked(buff[i].as_ptr(), buff[i].len(), buff[i].as_mut_ptr() as *mut u8) };
+          let res = unsafe { String::from_raw_parts(buff[i].as_mut_ptr() as *mut u8, len, buff[i].capacity() * mem::size_of::<char>()) };
+
+          eprintln!("\nresult{i}: {}", res);
+
+          eprintln!("need{i}:   {}", need[i]);
+
+          assert_eq!(res, need[i]);
+
+          //don't deallocate, otherwise it's double free(),
+          //as it uses memory managed by `buff` elements
+          let _res = mem::ManuallyDrop::new(res);
+        };
+    }
+
 }
